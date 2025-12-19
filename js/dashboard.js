@@ -1,6 +1,6 @@
 // ==========================================
 // FET - Food Expiry Tracker
-// Dashboard JavaScript (COMPLETE & FIXED)
+// Dashboard JavaScript (PHP BACKEND VERSION - COMPLETE)
 // ==========================================
 
 // === GLOBAL VARIABLES ===
@@ -14,14 +14,26 @@ let addFoodModal, editFoodModal, deleteModal, recipeModal;
 
 // === INITIALIZATION ===
 document.addEventListener('DOMContentLoaded', function() {
-    // Check authentication
-    checkDashboardAuth();
+    // CRITICAL: Check if we're in PHP authenticated mode
+    if (typeof IS_LOGGED_IN !== 'undefined' && IS_LOGGED_IN === true) {
+        console.log('✅ PHP Backend Mode - User authenticated');
+        
+        // Clear any guest mode data
+        localStorage.removeItem('fetGuestMode');
+        localStorage.removeItem('fetFoodItems');
+        localStorage.removeItem('fetUser');
+        
+        // Load data from PHP backend
+        loadFoodItemsFromDatabase();
+    } else {
+        // Fallback to localStorage for guest mode
+        console.log('📦 Guest Mode - Using localStorage');
+        checkDashboardAuth();
+        loadFoodItems();
+    }
     
     // Initialize Bootstrap modals
     initModals();
-    
-    // Load food items from localStorage
-    loadFoodItems();
     
     // Render initial view
     renderFoodGrid();
@@ -40,8 +52,39 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+// === LOAD FROM DATABASE (PHP Backend) ===
+function loadFoodItemsFromDatabase() {
+    if (typeof FOOD_ITEMS_FROM_DB !== 'undefined' && FOOD_ITEMS_FROM_DB) {
+        console.log('📊 Loading', FOOD_ITEMS_FROM_DB.length, 'items from database');
+        
+        // Convert PHP data format to JavaScript format
+        foodItems = FOOD_ITEMS_FROM_DB.map(item => ({
+            id: item.id,
+            name: item.food_name,
+            category: item.category,
+            expiryDate: item.expiry_date,
+            quantity: item.quantity || 1,
+            unit: item.unit || 'pcs',
+            storage: item.storage_location || '',
+            notes: item.notes || '',
+            status: item.status,
+            image: null,
+            addedDate: item.created_at
+        }));
+        
+        filteredFoodItems = [...foodItems];
+        
+        console.log('✅ Loaded', foodItems.length, 'items successfully');
+    } else {
+        console.log('ℹ️ No items in database yet');
+        foodItems = [];
+        filteredFoodItems = [];
+    }
+}
+
 // === AUTHENTICATION ===
 function checkDashboardAuth() {
+    // Only used for guest mode fallback
     const user = localStorage.getItem('fetUser');
     const isGuest = localStorage.getItem('fetGuestMode') === 'true';
     
@@ -52,22 +95,39 @@ function checkDashboardAuth() {
 }
 
 function loadUserInfo() {
-    const user = JSON.parse(localStorage.getItem('fetUser') || '{}');
-    
-    if (user.name) {
+    // Use PHP session data if available
+    if (typeof USER_NAME !== 'undefined' && USER_NAME) {
         const userNameElements = document.querySelectorAll('#userName');
-        userNameElements.forEach(el => el.textContent = user.name);
+        userNameElements.forEach(el => el.textContent = USER_NAME);
     }
-    if (user.email) {
+    if (typeof USER_EMAIL !== 'undefined' && USER_EMAIL) {
         const userEmailElements = document.querySelectorAll('#userEmail');
-        userEmailElements.forEach(el => el.textContent = user.email);
+        userEmailElements.forEach(el => el.textContent = USER_EMAIL);
+    }
+    
+    // Fallback to localStorage for guest mode
+    if (typeof USER_NAME === 'undefined') {
+        const user = JSON.parse(localStorage.getItem('fetUser') || '{}');
+        if (user.name) {
+            const userNameElements = document.querySelectorAll('#userName');
+            userNameElements.forEach(el => el.textContent = user.name);
+        }
+        if (user.email) {
+            const userEmailElements = document.querySelectorAll('#userEmail');
+            userEmailElements.forEach(el => el.textContent = user.email);
+        }
     }
 }
 
 function handleLogout() {
     if (confirm('Are you sure you want to logout?')) {
+        // Clear localStorage
         localStorage.removeItem('fetUser');
-        window.location.href = 'login.php';
+        localStorage.removeItem('fetGuestMode');
+        localStorage.removeItem('fetFoodItems');
+        
+        // Redirect to logout.php (will destroy PHP session)
+        window.location.href = 'logout.php';
     }
 }
 
@@ -118,8 +178,13 @@ function loadFoodItems() {
     if (stored) {
         foodItems = JSON.parse(stored);
     } else {
-        foodItems = generateDemoData();
-        saveFoodItems();
+        // Only generate demo data in guest mode
+        if (localStorage.getItem('fetGuestMode') === 'true') {
+            foodItems = generateDemoData();
+            saveFoodItems();
+        } else {
+            foodItems = [];
+        }
     }
     filteredFoodItems = [...foodItems];
 }
@@ -280,6 +345,7 @@ function handleEditFood(event) {
     showToast('Updated!', `${name} updated successfully!`, 'info');
 }
 
+// === THEME MANAGEMENT ===
 function changeTheme(theme, element) {
     // Update active state
     document.querySelectorAll('.theme-option').forEach(option => {
@@ -342,7 +408,7 @@ function applyTheme(theme) {
 }
 
 // Apply saved theme on page load
-document.addEventListener('DOMContentLoaded', function() {
+window.addEventListener('DOMContentLoaded', function() {
     const savedTheme = localStorage.getItem('fetTheme') || 'light';
     applyTheme(savedTheme);
     
@@ -404,7 +470,7 @@ function applyCurrentFilter() {
         
         if (currentFilter === 'fresh') {
             return daysLeft > 7;
-        } else if (currentFilter === 'expiring') {
+        } else if (currentFilter === 'expiring' || currentFilter === 'expiring_soon') {
             return daysLeft > 0 && daysLeft <= 7;
         } else if (currentFilter === 'expired') {
             return daysLeft <= 0;
@@ -608,7 +674,6 @@ setInterval(() => {
 }, 60000); // 60 seconds
 
 // === RECIPE MODAL (Enhanced) ===
-// Tambahkan di dashboard.js
 function openRecipeModal() {
     // Get items expiring in 7 days
     const expiringItems = foodItems.filter(item => {
@@ -693,5 +758,9 @@ if (typeof module !== 'undefined' && module.exports) {
 
 // === CONSOLE EASTER EGG ===
 console.log('%c🎯 FET Dashboard Loaded', 'color: #10b981; font-size: 16px; font-weight: bold;');
-console.log('%c📊 Food tracking system ready!', 'color: #64748b; font-size: 12px;');
+if (typeof IS_LOGGED_IN !== 'undefined' && IS_LOGGED_IN) {
+    console.log('%c✅ PHP Backend Mode', 'color: #10b981; font-size: 12px;');
+} else {
+    console.log('%c📦 Guest/localStorage Mode', 'color: #fbbf24; font-size: 12px;');
+}
 console.log('%c💡 Shortcuts: Ctrl+K (search), Ctrl+N (add food), ESC (close)', 'color: #fbbf24; font-size: 11px;');
